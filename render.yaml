@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: unfold-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      - key: UPI_ID
+        value: 9336991973@ptaxis
+      - key: CLIENT_URL
+        value: https://unfold-navy-nine.vercel.app
