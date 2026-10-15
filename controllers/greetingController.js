@@ -1,35 +1,34 @@
 const Greeting = require('../models/Greeting');
-
-const memoryGreetings = new Map();
+const { isDBConnected } = require('../config/db');
 
 /**
- * @desc Save a greeting
+ * @desc Save a greeting record to MongoDB
  * @route POST /api/greetings
  */
 exports.createGreeting = async (req, res, next) => {
   try {
+    if (!isDBConnected()) {
+      return res.status(503).json({
+        success: false,
+        message: 'MongoDB is not connected. Persistent greeting storage requires an active database.',
+      });
+    }
+
     const greetingData = req.body;
 
     if (!greetingData.recipient || !greetingData.message) {
       return res.status(400).json({
         success: false,
-        message: 'Recipient and message are required.',
+        message: 'Recipient name and message are required.',
       });
     }
 
-    let greeting;
-    try {
-      greeting = await Greeting.create(greetingData);
-    } catch {
-      const id = `greet_${Date.now()}`;
-      greeting = { _id: id, ...greetingData, createdAt: new Date() };
-      memoryGreetings.set(id, greeting);
-    }
+    const greeting = await Greeting.create(greetingData);
 
     return res.status(201).json({
       success: true,
       data: greeting,
-      message: 'Greeting saved successfully.',
+      message: 'Greeting saved to database successfully.',
     });
   } catch (error) {
     next(error);
@@ -37,24 +36,25 @@ exports.createGreeting = async (req, res, next) => {
 };
 
 /**
- * @desc Get a greeting by ID
+ * @desc Retrieve greeting record from MongoDB by ID
  * @route GET /api/greetings/:id
  */
 exports.getGreetingById = async (req, res, next) => {
   try {
-    const { id } = req.params;
-
-    let greeting = null;
-    try {
-      greeting = await Greeting.findById(id);
-    } catch {
-      greeting = memoryGreetings.get(id);
+    if (!isDBConnected()) {
+      return res.status(503).json({
+        success: false,
+        message: 'MongoDB is not connected. Cannot retrieve greeting.',
+      });
     }
+
+    const { id } = req.params;
+    const greeting = await Greeting.findById(id);
 
     if (!greeting) {
       return res.status(404).json({
         success: false,
-        message: 'Greeting not found.',
+        message: 'Greeting not found in database.',
       });
     }
 

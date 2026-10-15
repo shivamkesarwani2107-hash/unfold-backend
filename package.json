@@ -12,7 +12,8 @@
     "greetings",
     "upi",
     "payment",
-    "express"
+    "express",
+    "razorpay"
   ],
   "author": "Shivam Kesarwani",
   "license": "ISC",

@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const connectDB = require('./config/db');
+const { connectDB, isDBConnected } = require('./config/db');
 const paymentRoutes = require('./routes/paymentRoutes');
 const greetingRoutes = require('./routes/greetingRoutes');
 const errorHandler = require('./middleware/errorHandler');
@@ -22,10 +22,7 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, or Postman)
       if (!origin) return callback(null, true);
-
-      // Allow any vercel.app preview or production domain
       if (
         allowedOrigins.includes(origin) ||
         origin.endsWith('.vercel.app') ||
@@ -33,8 +30,7 @@ app.use(
       ) {
         return callback(null, true);
       }
-
-      return callback(null, true); // Permissive in deployment to avoid blocking users
+      return callback(null, true);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -42,11 +38,10 @@ app.use(
   })
 );
 
-// Express JSON body parser with 10mb limit for base64 photo support
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// Health Check Endpoints
+// Transparent Health Check
 app.get('/', (req, res) => {
   res.status(200).json({
     service: 'Unfold Backend API',
@@ -57,19 +52,30 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
+  const dbConnected = isDBConnected();
+  const razorpayConfigured = Boolean(
+    process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
+  );
+
   res.status(200).json({
     status: 'ok',
     uptime: process.uptime(),
+    database: {
+      connected: dbConnected,
+      status: dbConnected ? 'connected' : 'disconnected (requires MONGODB_URI in environment)',
+    },
+    paymentGateway: {
+      provider: 'Razorpay (UPI)',
+      configured: razorpayConfigured,
+      status: razorpayConfigured ? 'ready' : 'pending RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET',
+      merchantUpiId: process.env.UPI_ID || '9336991973@ptaxis',
+    },
     timestamp: new Date().toISOString(),
   });
 });
 
 app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  });
+  res.redirect('/health');
 });
 
 // API Routes
@@ -87,7 +93,6 @@ app.use((req, res) => {
 // Centralized Error Handling
 app.use(errorHandler);
 
-// Start Server
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`🚀 Unfold Backend running on port ${PORT}`);

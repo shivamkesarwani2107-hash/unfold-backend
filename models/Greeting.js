@@ -36,12 +36,12 @@ const greetingSchema = new mongoose.Schema(
       required: true,
     },
     photo: {
-      type: String, // base64 Data URL or image path
+      type: String,
       default: '',
     },
     orderId: {
       type: String,
-      default: '',
+      required: true,
       index: true,
     },
     paymentId: {
