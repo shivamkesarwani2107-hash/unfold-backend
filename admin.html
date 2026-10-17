@@ -1,0 +1,222 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Unfold Admin</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #fff7f8;
+      color: #29212a;
+    }
+    main { max-width: 1000px; margin: auto; }
+    .panel, .order {
+      background: white;
+      padding: 18px;
+      margin: 16px 0;
+      border: 1px solid #f2dce2;
+      border-radius: 14px;
+    }
+    input, textarea, button {
+      box-sizing: border-box;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      font: inherit;
+    }
+    input, textarea { width: 100%; margin: 6px 0; }
+    button {
+      background: #f43f70;
+      color: white;
+      border: 0;
+      cursor: pointer;
+      margin: 4px;
+      font-weight: bold;
+    }
+    button.reject { background: #555; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .preview {
+      display: block;
+      max-width: 100%;
+      max-height: 500px;
+      margin: 12px 0;
+      border: 1px solid #eee;
+      border-radius: 8px;
+    }
+    .muted { color: #777; font-size: 13px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .row input { flex: 1; min-width: 220px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>unfold. Admin</h1>
+    <p class="muted">
+      Approve only after confirming the ₹19 credit in your UPI/bank account.
+    </p>
+
+    <section class="panel">
+      <h2>Admin Login</h2>
+      <div class="row">
+        <input
+          id="token"
+          type="password"
+          placeholder="Enter ADMIN_TOKEN"
+          autocomplete="current-password"
+        />
+        <button onclick="loadOrders()">Load Orders</button>
+        <button class="reject" onclick="logout()">Clear</button>
+      </div>
+      <p id="notice"></p>
+    </section>
+
+    <section id="orders"></section>
+  </main>
+
+  <script>
+    let adminToken = "";
+
+    const escapeHTML = (value) =>
+      String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[char]);
+
+    function showNotice(message) {
+      document.getElementById("notice").textContent = message;
+    }
+
+    function logout() {
+      adminToken = "";
+      document.getElementById("token").value = "";
+      document.getElementById("orders").innerHTML = "";
+      showNotice("Token cleared.");
+    }
+
+    async function loadOrders() {
+      adminToken = document.getElementById("token").value.trim();
+
+      if (!adminToken) {
+        showNotice("Enter ADMIN_TOKEN first.");
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/admin/orders", {
+          headers: {
+            Authorization: "Bearer " + adminToken,
+          },
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || "Admin authentication failed.");
+        }
+
+        const root = document.getElementById("orders");
+        root.innerHTML = "";
+
+        if (!data.orders.length) {
+          root.textContent = "No payment orders yet.";
+          return;
+        }
+
+        data.orders.forEach((order) => {
+          const card = document.createElement("article");
+          card.className = "order";
+
+          card.innerHTML = `
+            <h2>${escapeHTML(order.orderId)} — ₹${escapeHTML(order.amount)}</h2>
+            <p><b>Status:</b> ${escapeHTML(order.status)}</p>
+            <p><b>Occasion:</b> ${escapeHTML(order.greeting?.occasion)}</p>
+            <p><b>Recipient:</b> ${escapeHTML(order.greeting?.recipient)}</p>
+            <p><b>Sender:</b> ${escapeHTML(order.greeting?.sender)}</p>
+            <p><b>Message:</b> ${escapeHTML(order.greeting?.message)}</p>
+            <p><b>Transaction reference:</b> ${escapeHTML(order.customerNote || "Not provided")}</p>
+            <p class="muted">Created: ${escapeHTML(new Date(order.createdAt).toLocaleString())}</p>
+            ${
+              order.screenshot
+                ? `<a href="${order.screenshot}" target="_blank" rel="noreferrer">Open full screenshot</a>
+                   <img class="preview" src="${order.screenshot}" alt="Payment screenshot" />`
+                : "<p>No screenshot uploaded.</p>"
+            }
+            <label>Admin note (optional)</label>
+            <textarea class="admin-note" rows="2">${escapeHTML(order.adminNote || "")}</textarea>
+            <div class="row">
+              <button class="approve">Approve — Unlock Greeting</button>
+              <button class="reject">Reject</button>
+            </div>
+          `;
+
+          const approveButton = card.querySelector(".approve");
+          const rejectButton = card.querySelector(".reject");
+          const noteInput = card.querySelector(".admin-note");
+
+          if (order.status !== "pending") {
+            approveButton.disabled = true;
+            rejectButton.disabled = true;
+          }
+
+          approveButton.addEventListener("click", () => {
+            reviewOrder(order.orderId, "approved", noteInput.value);
+          });
+
+          rejectButton.addEventListener("click", () => {
+            reviewOrder(order.orderId, "rejected", noteInput.value);
+          });
+
+          root.appendChild(card);
+        });
+
+        showNotice(`Loaded ${data.orders.length} order(s).`);
+      } catch (error) {
+        showNotice(error.message);
+      }
+    }
+
+    async function reviewOrder(orderId, status, adminNote) {
+      if (
+        status === "approved" &&
+        !confirm(
+          "Have you verified that ₹19 was actually credited to your account for this order?"
+        )
+      ) {
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          "/api/admin/orders/" + encodeURIComponent(orderId),
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + adminToken,
+            },
+            body: JSON.stringify({ status, adminNote }),
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || "Could not update order.");
+        }
+
+        showNotice(`${orderId}: ${status}.`);
+        await loadOrders();
+      } catch (error) {
+        showNotice(error.message);
+      }
+    }
+  </script>
+</body>
+</html>
